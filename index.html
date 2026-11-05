@@ -102,9 +102,23 @@ body.inRuta .view-ruta{display:block}
 .how{display:flex;gap:8px;flex-wrap:wrap;margin:0 2px 12px;font-size:13px;color:var(--muted)}
 .how span{background:var(--glass);border:1px solid var(--bd);border-radius:99px;padding:5px 12px;font-weight:500}
 .how b{color:var(--acc)}
-.mapwrap{padding:10px clamp(8px,1vw,18px);overflow-x:auto;width:100%}
+.mapwrap{padding:10px clamp(8px,1vw,18px);overflow:hidden;width:100%}
 .mapbox{min-width:0}
 .mapbox svg{display:block;width:100%;height:auto;border-radius:16px}
+.mobileMap{display:none}
+.mobileMap svg{display:block;width:100%;height:auto;border-radius:16px;background:var(--land1)}
+.mobile-pin{cursor:pointer}
+.mobile-pin .label-bg{fill:var(--glass);stroke:var(--bd);stroke-width:1.5}
+.mobile-pin .title{font:700 13px var(--sans);fill:var(--ink)}
+.mobile-pin .sub{font:500 10.5px var(--sans);fill:var(--muted)}
+.mobile-pin .marker{fill:var(--land1);stroke:var(--acc);stroke-width:3}
+.mobile-pin.done .marker{fill:var(--ok);stroke:var(--ok)}
+.mobile-pin.locked .marker{fill:var(--bg2);stroke:var(--muted)}
+.mobile-pin .number{font:800 15px var(--sans);fill:var(--acc);text-anchor:middle;dominant-baseline:central}
+.mobile-pin.done .number{fill:#fff}
+.mobile-pin.locked .number{fill:var(--muted)}
+.mobile-pin.current .marker{stroke-width:4}
+.mobile-start,.mobile-finish{font:800 12px var(--sans);fill:var(--acc);text-anchor:middle}
 .pin{cursor:pointer}
 .pin.locked{opacity:.42}
 .pin .ring{fill:none;stroke:var(--acc);stroke-width:2.5;opacity:0;transform-box:fill-box;transform-origin:center}
@@ -319,10 +333,12 @@ body.inRuta .view-ruta{display:block}
   main{padding:16px 14px 100px}
   .hero{grid-template-columns:1fr;text-align:center;justify-items:center;padding:22px 18px}
   .heroMain{width:100%}
-  .photo{width:124px;height:124px}
+  .photo{width:152px;height:152px}
   .note{width:100%;text-align:left;min-height:0}
   .pl{justify-content:center}.stats{justify-content:center;margin-left:auto;margin-right:auto}
-  .mapbox{min-width:900px}
+  .mapbox{display:none}
+  .mobileMap{display:block}
+  .mapwrap{padding:14px 10px;overflow:hidden}
   .sb{grid-template-columns:1fr}
   .ovl{padding:0}.sheet{max-height:100vh;height:100vh;border-radius:0}
   .metaed{grid-template-columns:56px 1fr}.metaed .in:nth-child(3),.metaed .in:nth-child(4){grid-column:auto}
@@ -334,6 +350,7 @@ body.inRuta .view-ruta{display:block}
   .stat{padding:9px 11px;gap:8px}
   .stat .si{width:30px;height:30px;font-size:15px}
   .stat b{font-size:19px}
+  .pfph .photo{width:116px;height:116px}
 }
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
@@ -422,7 +439,7 @@ body.inRuta .view-ruta{display:block}
           <g id="stops"></g>
           <g id="me" class="me" filter="url(#sh)"></g>
         </svg>
-      </div></div>
+      </div><div class="mobileMap" id="mobileMap"></div></div>
 
       <div class="route" id="routeCards"></div>
     </div>
@@ -765,6 +782,70 @@ function buildMap(){
       <text id="avatarInitial" x="0" y="-34" text-anchor="middle" dominant-baseline="central" font-family="Outfit" font-weight="800" font-size="16" fill="#fff" ${S.photo?'style="display:none"':''}>${esc(ini)}</text></g>`;
   setAvatar(curT);markPins();
 }
+function renderMobileMap(){
+  const el=$('#mobileMap');if(!el)return;
+  const cur=currentModule(),T=totals(),progress=T.n?T.sum/T.n:0;
+  const points=S.modules.map((m,i)=>({x:i%2?274:86,y:100+i*118}));
+  const height=Math.max(300,(points[points.length-1]?.y||100)+180);
+  const avatarPoint=points[Math.max(0,S.modules.indexOf(cur))]||{x:86,y:100};
+  let path=`M 180 34 C 180 58 ${points[0]?.x||180} 62 ${points[0]?.x||180} ${points[0]?.y||100}`;
+  for(let i=1;i<points.length;i++){
+    const a=points[i-1],b=points[i];
+    path+=` C ${a.x} ${a.y+38} ${b.x} ${b.y-38} ${b.x} ${b.y}`;
+  }
+  const last=points[points.length-1]||{x:180,y:100};
+  path+=` C ${last.x} ${last.y+42} 180 ${height-72} 180 ${height-42}`;
+  const trees=points.map((p,i)=>{
+    const x=p.x<180?335:8,y=p.y+36;
+    return `<g transform="translate(${x} ${y})" fill="var(--tree)" opacity=".7"><path d="M10 0 20 17H0Z M10 8 21 27H-1Z"/><rect x="8.5" y="27" width="3" height="5"/></g>`;
+  }).join('');
+  const pins=S.modules.map((m,i)=>{
+    const p=points[i],full=isComplete(m),current=cur&&cur.id===m.id,locked=!isUnlocked(m),st=stats(m);
+    const cardX=p.x<180?130:20,titleX=cardX+34;
+    const title=m.title.length>20?m.title.slice(0,19)+'…':m.title;
+    const subtitle=full?'Completado':locked?'Bloqueado':`${st.done}/${st.tot} temas`;
+    const marker=current&&S.photo
+      ?`<image x="${p.x-22}" y="${p.y-22}" width="44" height="44" preserveAspectRatio="xMidYMid slice" clip-path="url(#mobileAvatarClip)" href="${esc(S.photo)}"/>`
+      :`<text class="number" x="${p.x}" y="${p.y}">${current?esc((S.name||'J').trim().charAt(0).toUpperCase()||'J'):full?'✓':locked?'🔒':i+1}</text>`;
+    return `<g class="mobile-pin ${full?'done ':''}${current?'current ':''}${locked?'locked':''}" data-mobile-module="${esc(m.id)}" role="button" tabindex="0" aria-label="Abrir ${esc(m.title)}">
+      <title>${esc(m.title)}</title><rect class="label-bg" x="${cardX}" y="${p.y-32}" width="210" height="64" rx="13"/>
+      <text x="${cardX+11}" y="${p.y-6}" font-size="16">${esc(m.emoji||'📌')}</text>
+      <text class="title" x="${titleX}" y="${p.y-8}">${esc(title)}</text><text class="sub" x="${cardX+12}" y="${p.y+17}">${esc(subtitle)}</text>
+      <circle class="marker" cx="${p.x}" cy="${p.y}" r="24"/>${marker}</g>`;
+  }).join('');
+  el.innerHTML=`<svg viewBox="0 0 360 ${height}" role="img" aria-label="Mapa completo de tu ruta" preserveAspectRatio="xMidYMin meet">
+    <defs><clipPath id="mobileAvatarClip"><circle cx="${avatarPoint.x}" cy="${avatarPoint.y}" r="20"/></clipPath></defs>
+    <rect width="360" height="${height}" rx="16" fill="var(--land1)"/>
+    <g fill="none" stroke="var(--contour)" stroke-width="1.5"><path d="M0 64 Q90 40 180 64T360 64 M0 ${height*.35} Q90 ${height*.35-25} 180 ${height*.35}T360 ${height*.35} M0 ${height*.68} Q90 ${height*.68-24} 180 ${height*.68}T360 ${height*.68}"/></g>
+    ${trees}<path d="${path}" fill="none" stroke="var(--roadEdge)" stroke-width="25" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="${path}" fill="none" stroke="var(--road)" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
+    <path class="mobileProgress" d="${path}" fill="none" stroke="url(#pg)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+    <text class="mobile-start" x="180" y="20">INICIO</text><circle cx="180" cy="34" r="8" fill="var(--acc)" stroke="var(--land1)" stroke-width="3"/>
+    ${pins}<g transform="translate(180 ${height-42})">
+      <ellipse cx="0" cy="4" rx="56" ry="10" fill="var(--ink)" opacity=".13"/>
+      <g transform="translate(0,-34)">
+        <rect x="-40" y="-16" width="80" height="46" rx="5" fill="var(--land1)" stroke="var(--acc2)" stroke-width="2.5"/>
+        <path d="M-48 -15 L0 -50 L48 -15 Z" fill="var(--acc)"/><path d="M-38 -16 L0 -43 L38 -16" fill="none" stroke="var(--acc2)" stroke-width="3" stroke-linecap="round"/>
+        <rect x="-4" y="10" width="16" height="20" rx="2.5" fill="var(--acc)" opacity=".75"/><circle cx="8" cy="20" r="1.4" fill="#fff"/>
+        <rect x="-32" y="-8" width="44" height="30" rx="3" fill="#20304a" stroke="var(--acc2)" stroke-width="2"/>
+        <g class="pcGlow"><rect x="-27" y="-3" width="34" height="20" rx="2" fill="#0e1a2c"/><rect x="-24" y="0" width="28" height="14" rx="1.5" fill="#8fd8ff" opacity=".9"/>
+          <g class="screenLine" stroke="#1d6f9e" stroke-width="1.5" opacity=".85"><line x1="-21" y1="4" x2="-8" y2="4"/><line x1="-21" y1="7" x2="-4" y2="7"/><line x1="-21" y1="10" x2="-11" y2="10"/></g>
+          <rect x="-13" y="17" width="6" height="4" fill="#0e1a2c"/><rect x="-17" y="21" width="14" height="2" rx="1" fill="#0e1a2c"/></g>
+        <rect x="-34" y="23" width="44" height="3" rx="1.5" fill="var(--acc2)"/><rect x="14" y="15" width="8" height="8" rx="2" fill="#fff" opacity=".85"/>
+        <path class="steam" d="M18 15 c 3 -4 -3 -7 1 -11" stroke="var(--muted)" stroke-width="1.5" fill="none" stroke-linecap="round"/><rect x="-42" y="28" width="84" height="4" rx="2" fill="var(--hill2)"/>
+      </g>
+      <text class="mobile-finish" y="36">¡MI EMPLEO!</text>
+    </g></svg>`;
+  const progressLine=el.querySelector('.mobileProgress'),length=progressLine.getTotalLength();
+  progressLine.style.strokeDasharray=`${length} ${length}`;progressLine.style.strokeDashoffset=length*(1-progress);
+}
+$('#mobileMap').addEventListener('click',e=>{
+  const stop=e.target.closest('[data-mobile-module]');
+  if(stop)openModule(stop.dataset.mobileModule,true);
+});
+$('#mobileMap').addEventListener('keydown',e=>{
+  if((e.key==='Enter'||e.key===' ')&&e.target.matches('[data-mobile-module]')){e.preventDefault();openModule(e.target.dataset.mobileModule,true)}
+});
 let curT=0,anim=null;
 function setAvatar(t){
   curT=t;if(!LEN)return;
@@ -902,6 +983,7 @@ function openModule(id,scroll){
 let prevComplete=new Set(),prevAll=false;
 function update(silent){
   const T=totals(),n=T.n,pct=n?Math.round(T.sum/n*100):0,all=n>0&&T.mods===n;
+  renderMobileMap();
   const complete=new Set();let curSet=false;
   S.modules.forEach(m=>{
     const full=isComplete(m),p=pins[m.id];
@@ -1026,14 +1108,14 @@ function moduleFromEvent(e){
     const add=e.target.closest('[data-add-resource]');
     if(add){openResource(add.dataset.addResource,m.id);return}
     const dl=e.target.closest('[data-dellink]');
-    if(dl){e.preventDefault();S.links=S.links.filter(l=>String(l.id)!==dl.dataset.dellink);saveAll();renderEditors();return}
+    if(dl){e.preventDefault();S.links=S.links.filter(l=>String(l.id)!==dl.dataset.dellink);saveAll();renderEditors();toast('🔗 Recurso eliminado');return}
     const vc=e.target.closest('[data-viewcert]');
     if(vc){const c=S.certs.find(z=>z.id===vc.dataset.viewcert);const u=c&&await certURL(c);if(u)window.open(u,'_blank');else toast('No se encontró el archivo en este navegador');return}
     const dc=e.target.closest('[data-delcert]');
     if(dc){
       const c=S.certs.find(z=>z.id===dc.dataset.delcert);if(!c||!confirm('¿Borrar este certificado?'))return;
       if(c.path)await removeFile(c.path);else{try{await idbDel(c.id)}catch(_){}}
-      S.certs=S.certs.filter(z=>z.id!==c.id);saveAll();renderEditors();update(true);return;
+      S.certs=S.certs.filter(z=>z.id!==c.id);saveAll();renderEditors();update(true);toast('🏅 Certificado eliminado');return;
     }
     const b=e.target.closest('[data-act]');if(!b)return;
     const a=b.dataset.act,i=+b.dataset.i,editing=root===routeListEl?routeEditing:tEdit;
@@ -1045,6 +1127,9 @@ function moduleFromEvent(e){
     else if(a==='iadd')m.items.push({id:uid(),t:''});
     else if(a==='hadd')m.items.push({id:uid(),h:''});
     saveAll();renderEditors();
+    if(a==='idel')toast('Tema eliminado');
+    else if(a==='iadd')toast('Tema agregado');
+    else if(a==='hadd')toast('Subtítulo agregado');
     if(a==='iadd'||a==='hadd'){const card=root.querySelector(`[data-mod="${CSS.escape(m.id)}"]`),ins=card?.querySelectorAll('[data-f=item]'),last=ins?.[ins.length-1];last&&(last.focus(),last.scrollIntoView({block:'center'}))}
   });
   root.addEventListener('input',e=>{
@@ -1111,12 +1196,14 @@ $('#mgrList').addEventListener('click',e=>{
     m.items.forEach(it=>delete S.checks[it.id]);S.modules.splice(i,1);
     if(S.sel===id)S.sel=(S.modules[0]||{}).id;
     if(openId===id)openId=null;
+    toast('Módulo eliminado');
   }
   saveAll();renderMgr();
 });
 function addModule(){
   const m={id:uid(),emoji:'⭐',title:'Nuevo módulo',desc:'Describe de qué trata',weeks:'Semana ?',hours:'',items:[{id:uid(),t:'Primer tema'}]};
   S.modules.push(m);S.sel=m.id;openId=m.id;routeEditing=true;saveAll();renderAll(true);
+  toast('Módulo agregado');
   if(mgrOvl.classList.contains('open')){renderMgr();const ins=document.querySelectorAll('#mgrList [data-f=title]');ins[ins.length-1]?.select()}
   else setTimeout(()=>document.getElementById('route-card-'+m.id)?.scrollIntoView({behavior:'smooth',block:'start'}),40);
 }
